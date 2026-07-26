@@ -2,11 +2,12 @@
 
 TO RUN IT YOU NEED TO 
 
+```bash
 git clone https://github.com/erenakyildiz-code/PublicBaratrumDesktopApp.git
 cd PublicBaratrumDesktopApp
 npm i
 npm run dev
-
+```
 
 YOU CAN CHANGE THE VRM MODEL TO SOMETHING YOU WANT TO USE:
 /src/renderer/public/model.vrm 
