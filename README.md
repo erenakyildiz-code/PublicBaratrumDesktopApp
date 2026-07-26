@@ -47,8 +47,3 @@ cat node_modules/electron/path.txt && echo
 ```
 
 Then `npm run dev` should start normally.
-
-**Permanent fix for fresh clones:** make sure the `allowScripts` field in
-`package.json` (created by `npm install-scripts approve electron`) is
-committed. With that in the repo, `npm install` runs Electron's
-postinstall automatically and no manual steps are needed.
