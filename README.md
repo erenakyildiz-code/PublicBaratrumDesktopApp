@@ -47,3 +47,4 @@ cat node_modules/electron/path.txt && echo
 ```
 
 Then `npm run dev` should start normally.
+<img width="597" height="1055" alt="image" src="https://github.com/user-attachments/assets/6d1b8bc8-9ed5-4d9b-af3d-0e7d3d528c19" />
