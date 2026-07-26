@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+
+
+    /* Styles the combobox so the flags look clean */
+    #languageSelect {
+        font-size: 18px; 
+        padding: 4px 8px;
+        cursor: pointer;
+    }
+  /* Auth Container */
+#auth-wrapper {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 350px;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 16px;
+    padding: 30px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    z-index: 100; /* Keep above canvas */
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    -webkit-app-region: no-drag;
+}
+#tokenModal{
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 350px;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 16px;
+    padding: 30px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    z-index: 100; /* Keep above canvas */
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    -webkit-app-region: no-drag;
+}
+
+.auth-header {
+    color: white;
+    text-align: center;
+    margin: 0 0 10px 0;
+    font-size: 22px;
+}
+
+.auth-input {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: white;
+    padding: 10px 15px;
+    font-size: 14px;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+    transition: all 0.3s ease;
+}
+
+.auth-input:focus {
+    background: rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.auth-btn {
+    width: 100%;
+    margin-top: 10px;
+    background: rgba(0, 100, 255, 0.4);
+    border-color: rgba(0, 100, 255, 0.6);
+}
+
+.auth-btn:hover {
+    background: rgba(0, 100, 255, 0.6);
+}
+
+.auth-switch {
+    background: none;
+    border: none;
+    box-shadow: none;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    padding: 5px;
+    margin-top: 5px;
+}
+
+.auth-switch:hover {
+    background: none;
+    color: white;
+    transform: none;
+    text-decoration: underline;
+}
+
+/* Visibility Utilities */
+.hidden { display: none !important; }
+  /* Agent Button Active State (Blue) */
+.agent-active {
+    background: rgba(0, 100, 255, 0.4) !important;
+    border-color: rgba(0, 100, 255, 0.6) !important;
+}
+
+/* Socket Button States */
+#toggleDeepgramBtn {
+    background: rgba(0, 120, 0, 0.4); /* Default Green */
+    border-color: rgba(0, 120, 0, 0.6);
+}
+
+#toggleDeepgramBtn.socket-dead {
+    background: rgba(180, 0, 0, 0.4) !important; /* Red when "Killed" */
+    border-color: rgba(180, 0, 0, 0.6) !important;
+}
+    body { 
+      margin: 0; 
+      padding: 0; 
+      overflow: hidden; 
+      background-color: transparent !important; 
+      -webkit-app-region: drag; 
+      font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+    }
+    
+    canvas { 
+      display: block; 
+    }
+    
+    /* Main wrapper to keep UI centered and organized at the bottom */
+    #ui-wrapper {
+      position: absolute;
+      bottom: 25px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 15px;
+      width: 80%;
+      max-width: 700px; 
+      pointer-events: none; 
+      -webkit-app-region: no-drag;
+    }
+
+    /* Transparent, auto-sizing text area */
+    #chatInput {
+      pointer-events: auto; 
+      background: rgba(0, 0, 0, 0.25);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      color: white;
+      padding: 12px 20px;
+      font-size: 15px;
+      font-family: inherit;
+      outline: none;
+      width: 100%;
+      box-sizing: border-box;
+      resize: none; 
+      overflow-x: hidden;
+      min-height: 46px; 
+      max-height: 200px; /* It stops growing here and the scrollbar appears */
+      line-height: 1.4;
+      transition: background 0.3s ease, border-color 0.3s ease;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      
+      /* Firefox Scrollbar Fallback */
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+    }
+
+    #chatInput:focus {
+      background: rgba(0, 0, 0, 0.4);
+      border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    #chatInput::placeholder {
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    /* --- THE COOL CUSTOM SCROLLBAR --- */
+    /* Width of the scrollbar itself */
+    #chatInput::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    /* The track (background) - making it fully transparent */
+    #chatInput::-webkit-scrollbar-track {
+      background: transparent;
+      margin-top: 10px; /* Keeps the pill from hitting the very top border */
+      margin-bottom: 10px;
+    }
+
+    /* The draggable thumb (the pill) */
+    #chatInput::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.25);
+      border-radius: 10px;
+    }
+
+    /* Less transparent when you hover or click the pill */
+    #chatInput::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.5);
+    }
+
+    /* Container for bottom buttons */
+    #ui-container {
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px; 
+      flex-wrap: wrap;
+      width: 100%;
+    }
+
+    /* Glassmorphism styling for buttons and select */
+    select, button {
+      background: rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: white;
+      padding: 10px 18px;
+      border-radius: 12px;
+      font-size: 14px;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+    }
+
+    /* Make the select box smaller */
+    select {
+      flex-grow: 0;
+      width: auto;
+      max-width: 180px;
+      text-overflow: ellipsis;
+    }
+
+    select option {
+      background: #222; 
+      color: white;
+    }
+
+    /* Hover animations */
+    button:hover, select:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.4);
+      transform: translateY(-2px);
+    }
+
+    button:active {
+      transform: translateY(0px);
+    }
+
+    /* Send button accent */
+    #sendBtn {
+      background: rgba(0, 120, 0, 0.4);
+      border-color: rgba(0, 120, 0, 0.6);
+    }
+    
+    #sendBtn:hover {
+      background: rgba(0, 120, 0, 0.7);
+    }
+
+    #tokenCnt {
+    /* Aesthetics */
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    padding: 8px 15px;
+    font-size: 12px;
+    width: 100%;
+    /* Behavior */
+    resize: none;
+    text-align: center;
+    transition: color 0.3s ease;
+    
+    /* Disable Interaction */
+    pointer-events: none; /* User cannot click/focus this */
+}
+
+/* Ensure the critical blink class works */
+.status-critical {
+    color: #ff0000 !important;
+    animation: blink 1s linear infinite;
+    font-weight: bold;
+}
+
+@keyframes blink {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+.modal { position: fixed; z-index: 1000; left: 0; top: 0; background: rgba(0,0,0,0.5); }
+.modal-content { background: #222; margin: 15% auto; padding: 20px; width: 300px; color: white; border-radius: 8px; }
+.hidden { display: none !important; }
+
+
+/* --- Global Overrides --- */
+body { 
+    margin: 0; 
+    padding: 0; 
+    overflow: hidden; 
+    font-family: 'Courier New', Courier, monospace !important; 
+    -webkit-app-region: drag; 
+}
+
+/* --- Auth & Modal Containers --- */
+#auth-wrapper, #tokenModal {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 350px;
+    background: #1a1a1a;
+    border: 1px solid #00ff41;
+    border-radius: 0;
+    padding: 30px;
+    box-shadow: 0 0 15px rgba(0, 255, 65, 0.2);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    -webkit-app-region: no-drag;
+}
+
+.auth-header {
+    color: #00ff41;
+    text-align: center;
+    margin: 0 0 10px 0;
+    font-size: 22px;
+    text-transform: uppercase;
+}
+
+.auth-input {
+    background: #0d0d0d;
+    border: 1px solid #00ff41;
+    border-radius: 0;
+    color: #00ff41;
+    padding: 10px 15px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.auth-btn {
+    width: 100%;
+    margin-top: 10px;
+    background: #00ff41;
+    color: #0d0d0d;
+    border: 1px solid #00ff41;
+    border-radius: 0;
+    font-weight: bold;
+}
+
+.auth-btn:hover {
+    background: #008f11;
+    color: white;
+}
+
+/* --- Chat Input & UI --- */
+#chatInput {
+    pointer-events: auto; 
+    background: #1a1a1a;
+    border: 1px solid #00ff41;
+    border-radius: 0;
+    color: #00ff41;
+    padding: 12px 20px;
+    width: 100%;
+    box-sizing: border-box;
+    resize: none; 
+    min-height: 46px; 
+    max-height: 200px;
+}
+
+/* Custom Scrollbar */
+#chatInput::-webkit-scrollbar { width: 8px; }
+#chatInput::-webkit-scrollbar-track { background: #0d0d0d; }
+#chatInput::-webkit-scrollbar-thumb { background: #00ff41; }
+
+/* --- Buttons & Selects --- */
+select, button {
+    background: #1a1a1a;
+    border: 1px solid #00ff41;
+    color: #00ff41;
+    padding: 10px 18px;
+    border-radius: 0;
+    cursor: pointer;
+}
+
+button:hover, select:hover {
+    background: #00ff41;
+    color: #0d0d0d;
+}
+
+#sendBtn {
+    background: #00ff41;
+    color: #0d0d0d;
+    border: 1px solid #00ff41;
+}
+
+/* --- Specific Functionality Classes --- */
+.agent-active {
+    background: #00ff41 !important;
+    color: #0d0d0d !important;
+}
+
+#toggleDeepgramBtn {
+    background: #008f11;
+    border-color: #00ff41;
+}
+
+#toggleDeepgramBtn.socket-dead {
+    background: #ff0000 !important;
+    border-color: #ff0000 !important;
+    color: white;
+}
+
+#tokenCnt {
+    background: #1a1a1a;
+    border: 1px solid #00ff41;
+    color: #00ff41;
+    padding: 8px 15px;
+    text-align: center;
+    pointer-events: none;
+}
+
+.status-critical {
+    color: #ff0000 !important;
+    animation: blink 1s linear infinite;
+    font-weight: bold;
+}
+
+@keyframes blink {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.hidden { display: none !important; }
+</style>
+</head>
+
+<body> 
+  
+  
+  <div id="tokenModal" class="modal hidden">
+  <div class="modal-content">
+    <span id="closeModal" class="close">&times;</span>
+    <h2>Top Up Balance</h2>
+    
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+
+      <div style="display: flex; gap: 5px;">
+        <select id="cryptoSelect" style="flex-grow: 1;">
+            <option value="xmr">Monero (XMR)</option>
+            <option value="eth">Ethereum (ETH)</option>
+            <option value="btc">Bitcoin (BTC)</option>
+        </select>
+        <button id="copyAddressBtn" style="padding: 10px;">Copy address</button>
+    </div>
+
+    <div style="display: flex; gap: 5px;">
+        <input type="text" id="walletAddressDisplay" class="auth-input" readonly placeholder="Address will appear here...">
+
+    </div>
+        
+    <input type="text" id="txHashInput" class="auth-input" placeholder="Transaction Hash (TxID)" required>
+    <input type="text" id="txKeyInput" class="auth-input" placeholder="Transaction Key" required>
+    
+    <button id="confirmPurchaseBtn" class="auth-btn">Submit Verification</button>
+    </div>
+    </div>
+</div>
+  <div id="auth-wrapper">
+    <h2 class="auth-header" id="authTitle">Login</h2>
+    
+    <form id="authForm" onsubmit="return false;">
+      <input type="email" id="emailInput" class="auth-input" placeholder="Email" required>
+      <input type="password" id="passwordInput" class="auth-input" style="margin-top: 10px;" placeholder="Password" required>
+      
+      <button type="submit" id="submitAuthBtn" class="auth-btn">Login</button>
+  </form>
+    
+    <button id="toggleAuthModeBtn" class="auth-switch">Need an account? Register</button>
+</div>
+
+        <div class="language-menu">
+    
+</div>
+<div id="ui-wrapper" class="hidden">
+
+  
+  <div style="display: flex; flex-direction: row; align-items: center; gap: 10px; width: 100%; pointer-events: auto;">
+        <button id="addTokensBtn"  >$</button>
+        <textarea id="tokenCnt" rows="2" class="hidden" readonly></textarea>
+
+    </div>
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 10px; width: 100%; pointer-events: auto;">
+      <textarea id="chatInput" rows="1" placeholder="Type a message or talk..."></textarea>
+      
+      <button id="sendBtn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+    
+    <div id="ui-container">
+      <div id="ui-container">
+      <select id="animationSelect">
+        <option value="/weightshift.vrma" >W1</option>
+        <option value="/IdleNew.vrma" selected >W2</option>
+        <option value="/Angry.vrma">Angry</option>
+        <option value="/Blush.vrma">Blush</option>
+        <option value="/Clapping.vrma">Clapping</option>
+        <option value="/CuteDance.vrma">Cute Dance</option>
+        <option value="/DanceMini.vrma">Dance Mini</option>
+        <option value="/Gobackabit.vrma">Go Back a Bit</option>
+        <option value="/Goodbye.vrma">Goodbye</option>
+        <option value="/Iwantyou.vrma">I Want You</option>
+        <option value="/Jump.vrma">Jump</option>
+        <option value="/JumpHello.vrma">Jump Hello</option>
+        <option value="/LookAround.vrma">Look Around</option>
+        <option value="/PeaceSign.vrma">Peace Sign</option>
+        <option value="/Relax.vrma">Relax</option>
+        <option value="/Sad.vrma">Sad</option>
+        <option value="/Sleepy.vrma">Sleepy</option>
+        <option value="/Surprised.vrma">Surprised</option>
+        <option value="/Thinking.vrma">Thinking</option>
+        <option value="/upanddownhandsfree.vrma">Up and Down (Hands Free)</option>
+
+        <!-- New Gestures Pack Basic -->
+        <option value="/acknowledging.vrma">Acknowledging</option>
+        <option value="/angry gesture.vrma">Angry Gesture</option>
+        <option value="/annoyed head shake.vrma">Annoyed Head Shake</option>
+        <option value="/being cocky.vrma">Being Cocky</option>
+        <option value="/dismissing gesture.vrma">Dismissing Gesture</option>
+        <option value="/happy hand gesture.vrma">Happy Hand Gesture</option>
+        <option value="/hard head nod.vrma">Hard Head Nod</option>
+        <option value="/head nod yes.vrma">Head Nod Yes</option>
+        <option value="/lengthy head nod.vrma">Lengthy Head Nod</option>
+        <option value="/look away gesture.vrma">Look Away</option>
+        <option value="/relieved sigh.vrma">Relieved Sigh</option>
+        <option value="/sarcastic head nod.vrma">Sarcastic Head Nod</option>
+        <option value="/shaking head no.vrma">Shaking Head No</option>
+        <option value="/thoughtful head shake.vrma">Thoughtful Head Shake</option>
+        <!--dance shit-->
+        <option value="/dance_nice_1.vrma">New dance 1</option>
+        <option value="/dance_nice_2.vrma">New dance 2</option>
+        <option value="/dance_nice_3.vrma">New dance 3</option>
+        <option value="/dance_nice_4.vrma">New dance 4</option>
+        
+
+      </select>
+          
+      <button id="remSleepBtn">
+        REM sleep  </button>
+<button id="vr-btn" >ENTER VR</button>
+
+<select id="languageSelect">
+    <option value="en">🇺🇸</option>
+    <option value="zh">🇨🇳</option>
+    <option value="ru">🇷🇺</option>
+    <option value="ja">🇯🇵</option>
+    <option value="ko">🇰🇷</option>
+    <option value="hi">🇮🇳</option>
+    <option value="tr">🇹🇷</option>
+    <option value="yue">🇭🇰</option>
+    <option value="de">🇩🇪</option>
+    <option value="fr">🇫🇷</option>
+    <option value="es">🇪🇸</option>
+    <option value="pt">🇵🇹</option>
+    <option value="id">🇮🇩</option>
+    <option value="it">🇮🇹</option>
+    <option value="th">🇹🇭</option>
+    <option value="vi">🇻🇳</option>
+    <option value="ms">🇲🇾</option>
+    <option value="nl">🇳🇱</option>
+    <option value="sv">🇸🇪</option>
+    <option value="da">🇩🇰</option>
+    <option value="fi">🇫🇮</option>
+    <option value="pl">🇵🇱</option>
+    <option value="cs">🇨🇿</option>
+    <option value="fil">🇵🇭</option>
+    <option value="fa">🇮🇷</option>
+    <option value="el">🇬🇷</option>
+    <option value="hu">🇭🇺</option>
+    <option value="mk">🇲🇰</option>
+    <option value="ar">🇸🇦</option>
+    <option value="ro">🇷🇴</option>
+</select>
+    </div>
+  
+  </div>
+
+  <script type="module" src="./src/renderer.js"></script>
+  
+  <script>
+    const textarea = document.getElementById("chatInput");
+    function adjustHeight() {
+      textarea.style.height = "auto";
+      textarea.style.height = textarea.scrollHeight + "px";
+      
+      if (textarea.scrollHeight > 200) {
+        textarea.style.overflowY = "auto";
+      } else {
+        textarea.style.overflowY = "hidden";
+      }
+    }
+
+    textarea.addEventListener("input", adjustHeight);
+    adjustHeight();
+    
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.wasm.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/bundle.min.js"></script><script>
+  </script>
+</body>
+</html>

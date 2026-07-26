@@ -1,0 +1,14 @@
+node_modules
+dist
+out
+.DS_Store
+.eslintcache
+*.log*
+src/renderer/public/models/
+src/renderer/public/wasm/
+public/*
+src/renderer/public/*
+!src/renderer/public/model.vrm
+!src/renderer/public/waiting.vrma
+!src/renderer/public/headworklet.min.mjs
+.gitbackup/

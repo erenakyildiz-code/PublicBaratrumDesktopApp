@@ -1,0 +1,24 @@
+@import './base.css';
+/* Add this to your style tag or base.css */
+* {
+  background-color: transparent !important;
+  background: transparent !important;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  /* This ensures the root element has zero opacity */
+  background: rgba(0, 0, 0, 0) !important;
+}
+
+canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Allow clicking through the empty space around the character */
+  pointer-events: none;
+}
