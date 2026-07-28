@@ -777,10 +777,16 @@ const passwordInput = document.getElementById('passwordInput');
 
 function getAuthHeaders(includeJsonContentType = true) {
     const headers = { 'Authorization': `Bearer ${authToken}` };
-    if (includeJsonContentType) headers['Content-Type'] = 'application/json';
+    if (includeJsonContentType) {
+        headers['Content-Type'] = 'application/json';
+    }
     return headers;
 }
 
+// For file uploads — never send Content-Type, browser sets the boundary
+function getMultipartAuthHeaders() {
+    return { 'Authorization': `Bearer ${authToken}` };
+}
 
 //HELPER
 async function updateTokenDisplay() {
@@ -1026,7 +1032,6 @@ async function executeTokenRefresh() {
 const tokenModal = document.getElementById('tokenModal');
 //const addTokensBtn = document.getElementById('addTokensBtn');
 const closeModal = document.getElementById('closeModal');
-const confirmPurchaseBtn = document.getElementById('confirmPurchaseBtn');
 
 addTokensBtn.addEventListener('click', () => {
     tokenModal.classList.remove('hidden');
@@ -1036,68 +1041,12 @@ closeModal.addEventListener('click', () => {
     tokenModal.classList.add('hidden');
 });
 
-confirmPurchaseBtn.addEventListener('click', async () => {
-    const txId = document.getElementById('txHashInput').value;
-    const txKey = document.getElementById('txKeyInput').value;
 
-    try {
-        const response = await fetch(`${API_BASE}/api/checkXMR?txId=${encodeURIComponent(txId)}&txKey=${encodeURIComponent(txKey)}`, {
-            method: 'POST',
-            headers: getAuthHeaders()
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            alert(`Balance added! Credited: $${data.data.toFixed(2)}`);
-            tokenModal.classList.add('hidden');
-            updateTokenDisplay();
-        } else {
-
-            const data = await response.json();
-            alert(data.data);
-        }
-    } catch (err) {
-        alert("you are doing something very wrong, check parameters");
-    }
-});
-// Close modal if user clicks outside of the content box
-window.addEventListener('click', (event) => {
-    if (event.target === tokenModal) {
-        tokenModal.classList.add('hidden');
-    }
-});
 
 
 
 // Add your actual addresses here
-const cryptoAddresses = {
-    xmr: "49DhJ2kg5fPQZHstBnYgqM8PmjjGgMn7cBLY6A381cfpXJvRxApmbkoBtPRRsjefmUHniprTPb6Xv6srs3waSnjKNENsmWf",
-    eth: "not supported rn",
-    btc: "not supported rn"
-};
 
-const cryptoSelect = document.getElementById('cryptoSelect');
-const walletAddressDisplay = document.getElementById('walletAddressDisplay');
-const copyAddressBtn = document.getElementById('copyAddressBtn');
-
-// Update address display when select changes
-cryptoSelect.addEventListener('change', () => {
-    walletAddressDisplay.value = cryptoAddresses[cryptoSelect.value];
-});
-
-// Initialize first value
-walletAddressDisplay.value = cryptoAddresses.xmr;
-
-// Copy button logic
-copyAddressBtn.addEventListener('click', () => {
-    walletAddressDisplay.select();
-    document.execCommand('copy');
-    
-    // Quick visual feedback
-    const originalText = copyAddressBtn.innerText;
-    copyAddressBtn.innerText = "Copied!";
-    setTimeout(() => { copyAddressBtn.innerText = originalText; }, 2000);
-});
 
 
 const vrBtn = document.getElementById('vr-btn');
@@ -1168,4 +1117,66 @@ async function updateLanguage() {
     }
 //#endregion
 
+// Export memories
+document.getElementById('exportMemoriesBtn').addEventListener('click', async () => {
+    try {
+        const response = await fetch(`${API_BASE}/api/export-memories`, {
+            method: 'GET',
+            headers: getAuthHeaders()
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(err || 'Export failed');
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `memories_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'')}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+
+    } catch (e) {
+        alert('Export failed: ' + e.message);
+    }
+});
+// Open file dialog when Import is clicked
+document.getElementById('importMemoriesBtn').addEventListener('click', () => {
+    document.getElementById('importFileInput').click();
+});
+
+// Handle the selected file
+document.getElementById('importFileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const statusEl = document.getElementById('importStatus');
+    statusEl.textContent = 'Uploading...';
+    statusEl.style.color = '#aaa';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const response = await fetch(`${API_BASE}/api/import-memories`, {
+            method: 'POST',
+            headers: getMultipartAuthHeaders(),
+            body: formData
+        });
+
+        if (!response.ok) throw new Error(await response.text());
+
+        statusEl.textContent = 'Import successful!';
+        statusEl.style.color = '#4caf50';
+        e.target.value = ''; // reset so same file can be re-selected
+
+    } catch (err) {
+        statusEl.textContent = 'Import failed: ' + err.message;
+        statusEl.style.color = '#f44336';
+    }
+});
 autoLoginLocal();

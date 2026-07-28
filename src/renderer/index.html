@@ -459,30 +459,21 @@ button:hover, select:hover {
   <div id="tokenModal" class="modal hidden">
   <div class="modal-content">
     <span id="closeModal" class="close">&times;</span>
-    <h2>Top Up Balance</h2>
+    <h2>Memory Data</h2>
     
-    <div style="display: flex; flex-direction: column; gap: 10px;">
-
-      <div style="display: flex; gap: 5px;">
-        <select id="cryptoSelect" style="flex-grow: 1;">
-            <option value="xmr">Monero (XMR)</option>
-            <option value="eth">Ethereum (ETH)</option>
-            <option value="btc">Bitcoin (BTC)</option>
-        </select>
-        <button id="copyAddressBtn" style="padding: 10px;">Copy address</button>
-    </div>
-
-    <div style="display: flex; gap: 5px;">
-        <input type="text" id="walletAddressDisplay" class="auth-input" readonly placeholder="Address will appear here...">
-
-    </div>
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+        <button id="exportMemoriesBtn" class="auth-btn">Export Memories</button>
         
-    <input type="text" id="txHashInput" class="auth-input" placeholder="Transaction Hash (TxID)" required>
-    <input type="text" id="txKeyInput" class="auth-input" placeholder="Transaction Key" required>
-    
-    <button id="confirmPurchaseBtn" class="auth-btn">Submit Verification</button>
+        <hr style="border: none; border-top: 1px solid #444; margin: 4px 0;">
+        
+        <!-- hidden file input -->
+        <input type="file" id="importFileInput" style="display: none;" accept=".json">
+        
+        <!-- visible button triggers the dialog -->
+        <button id="importMemoriesBtn" class="auth-btn">Import Memories</button>
+        <span id="importStatus" style="font-size: 0.85em; color: #aaa;"></span>
     </div>
-    </div>
+</div>
 </div>
   <div id="auth-wrapper">
     <h2 class="auth-header" id="authTitle">Login</h2>
