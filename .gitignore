@@ -11,4 +11,5 @@ src/renderer/public/*
 !src/renderer/public/model.vrm
 !src/renderer/public/waiting.vrma
 !src/renderer/public/headworklet.min.mjs
+!src/renderer/public/model-en-mixed.bin
 .gitbackup/
