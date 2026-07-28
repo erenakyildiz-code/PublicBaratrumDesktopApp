@@ -1155,7 +1155,7 @@ document.getElementById('importFileInput').addEventListener('change', async (e) 
     if (!file) return;
 
     const statusEl = document.getElementById('importStatus');
-    statusEl.textContent = 'Uploading...';
+    statusEl.textContent = 'Importing...';
     statusEl.style.color = '#aaa';
 
     const formData = new FormData();
@@ -1170,9 +1170,27 @@ document.getElementById('importFileInput').addEventListener('change', async (e) 
 
         if (!response.ok) throw new Error(await response.text());
 
-        statusEl.textContent = 'Import successful!';
+        const result = await response.json();
+
+        // Auto-download the backup that was returned
+        if (result.backedUpMemories) {
+            const backupBlob = new Blob(
+                [JSON.stringify(result.backedUpMemories, null, 2)],
+                { type: 'application/json' }
+            );
+            const url = URL.createObjectURL(backupBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `memories_backup_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'')}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        statusEl.textContent = 'Import successful! Old memories backed up.';
         statusEl.style.color = '#4caf50';
-        e.target.value = ''; // reset so same file can be re-selected
+        e.target.value = '';
 
     } catch (err) {
         statusEl.textContent = 'Import failed: ' + err.message;
