@@ -8,7 +8,9 @@ cd PublicBaratrumDesktopApp
 npm i
 npm run dev
 ```
-
+you need to change: src/renderer/src/renderer.js
+const WS_BASE_URL = "wss://devil-macbook-air-2.tail1737c0.ts.net";
+TO YOUR MOUTH URL; the TEXT TO SPEECH SERVER.
 YOU CAN CHANGE THE VRM MODEL TO SOMETHING YOU WANT TO USE:
 /src/renderer/public/model.vrm 
 IS WHAT THE APP USES
