@@ -1481,4 +1481,84 @@ async function updateRemSleepPrice() {
 }    
 //#endregion
 
+// Export memories
+document.getElementById('exportMemoriesBtn').addEventListener('click', async () => {
+    try {
+        const response = await fetch(`${API_BASE}/api/export-memories`, {
+            method: 'GET',
+            headers: getAuthHeaders()
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(err || 'Export failed');
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `memories_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'')}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+
+    } catch (e) {
+        alert('Export failed: ' + e.message);
+    }
+});
+// Open file dialog when Import is clicked
+document.getElementById('importMemoriesBtn').addEventListener('click', () => {
+    document.getElementById('importFileInput').click();
+});
+
+// Handle the selected file
+document.getElementById('importFileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const statusEl = document.getElementById('importStatus');
+    statusEl.textContent = 'Importing...';
+    statusEl.style.color = '#aaa';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const response = await fetch(`${API_BASE}/api/import-memories`, {
+            method: 'POST',
+            headers: getMultipartAuthHeaders(),
+            body: formData
+        });
+
+        if (!response.ok) throw new Error(await response.text());
+
+        const result = await response.json();
+
+        // Auto-download the backup that was returned
+        if (result.backedUpMemories) {
+            const backupBlob = new Blob(
+                [JSON.stringify(result.backedUpMemories, null, 2)],
+                { type: 'application/json' }
+            );
+            const url = URL.createObjectURL(backupBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `memories_backup_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'')}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        statusEl.textContent = 'Import successful! Old memories backed up.';
+        statusEl.style.color = '#4caf50';
+        e.target.value = '';
+
+    } catch (err) {
+        statusEl.textContent = 'Import failed: ' + err.message;
+        statusEl.style.color = '#f44336';
+    }
+});
 autoLoginLocal();
