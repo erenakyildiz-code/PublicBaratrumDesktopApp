@@ -29,9 +29,9 @@ let isInterrupted = false;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 20);
 camera.position.set(0, 1.4, 1);
-camera.lookAt(0, 1, 0);
+camera.lookAt(0, 1.1, 0);
 const cameraRig = new THREE.Group();
-cameraRig.position.set(0,0.6,1.4);
+cameraRig.position.set(0,0.4,0.5);
 scene.add(cameraRig);
 cameraRig.add(camera);
 const renderer = new THREE.WebGLRenderer({
@@ -46,15 +46,15 @@ renderer.setClearAlpha(0);
 renderer.setClearColor(0x000000, 0);
 document.body.appendChild(renderer.domElement);
 
-const keyLight = new THREE.DirectionalLight(0xffffff, 2);
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.3);
 keyLight.position.set(0, 4, 2); 
 scene.add(keyLight);
 
-const pinkRim = new THREE.DirectionalLight(0xff00ff, 1); 
+const pinkRim = new THREE.DirectionalLight(0xff00ff, 0.3); 
 pinkRim.position.set(3, 1, -2); 
 scene.add(pinkRim);
 
-const cyanRim = new THREE.DirectionalLight(0x00ffff, 1); 
+const cyanRim = new THREE.DirectionalLight(0x00ffff, 0.3); 
 cyanRim.position.set(-3, 1, -2); 
 scene.add(cyanRim);
 
@@ -139,11 +139,11 @@ const loader = new GLTFLoader();
 loader.register((parser) => new VRMLoaderPlugin(parser));
 loader.register((parser) => new VRMAnimationLoaderPlugin(parser)); 
 
-loader.load('/model.vrm', (gltf) => {
+loader.load('/old_model.vrm', (gltf) => {
     const vrm = gltf.userData.vrm;
     scene.add(vrm.scene);
     currentVrm = vrm;
-    vrm.scene.rotation.y = Math.PI; 
+    vrm.scene.rotation.y = Math.PI; window.vrm = vrm; 
     
     
     switchAnimation('/IdleNew.vrma');
@@ -153,26 +153,317 @@ loader.load('/model.vrm', (gltf) => {
 );
 
 function switchAnimation(animationUrl) {
-  loader.load(animationUrl, (gltf) => {
-      const vrmAnimations = gltf.userData.vrmAnimations;
-      
-      if (vrmAnimations && vrmAnimations.length > 0) {
-        if (!currentMixer) currentMixer = new THREE.AnimationMixer(currentVrm.scene);
-        
-        const clip = createVRMAnimationClip(vrmAnimations[0], currentVrm);
-        const newAction = currentMixer.clipAction(clip);
-        const fadeDuration = 0.1;
-        
-        if (currentAction) currentAction.fadeOut(fadeDuration);
-        
-        newAction.reset().fadeIn(fadeDuration).play();
-        currentAction = newAction;
-      }
-    },
-    undefined, 
-    (error) => console.error(`Failed to load ${animationUrl}:`, error)
-  );
+  if (!currentVrm) return;
+  ensureMixer();
+  loadClip(animationUrl).then((clip) => {
+    const newAction = currentMixer.clipAction(clip);
+    revive(newAction);
+    newAction.setLoop(THREE.LoopRepeat, Infinity);
+    newAction.play();
+    if (currentAction && currentAction !== newAction) {
+      currentAction.crossFadeTo(newAction, 1.6, false); // never reset() → no T-pose snap
+    }
+    currentAction = newAction;
+  }).catch((error) => console.error(`Failed to load ${animationUrl}:`, error));
 }
+
+// ==========================================
+// --- EMOTION ENGINE ---
+// ==========================================
+const ANIM_PATHS = {
+  // ---- overlays (moods: loop while active) ----
+  excited:   '/excited.vrma',
+  happy:     '/HappyNew.vrma',
+  sad:       '/Sad.vrma',
+  angry:     '/Angry.vrma',
+  thinking:  '/thinkingNew.vrma',
+  sleepy:    '/Sleepy.vrma',
+  relaxed:   '/Relax.vrma',
+  lookAround:'/LookAroundNew.vrma',
+  sway:      '/weightshift.vrma',
+  dance:     '/dance.vrma',
+  // ---- bursts (gestures: play once, melt back) ----
+  greeting:  '/JumpHello.vrma',
+  goodbye:   '/Goodbye.vrma',
+  agree:     '/head nod yes.vrma',
+  hardAgree: '/hard head nod.vrma',
+  disagree:  '/shaking head no.vrma',
+  annoyed:   '/annoyed head shake.vrma',
+  doubtful:  '/thoughtful head shake.vrma',
+  sarcastic: '/sarcastic head nod.vrma',
+  relieved:  '/relieved sigh.vrma',
+  cocky:     '/being cocky.vrma',
+  ack:       '/acknowledging.vrma',
+  dismiss:   '/dismissing gesture.vrma',
+  lookAway:  '/look away gesture.vrma',
+  happyGesture: '/happy hand gesture.vrma',
+  angryGesture: '/angry gesture.vrma',
+  clap:      '/Clapping.vrma',
+  peace:     '/PeaceSign.vrma',
+  kiss:      '/kiss.vrma',
+  shy:       '/Blush.vrma',
+  recoil:    '/Gobackabit.vrma',
+  point:     '/Iwantyou.vrma',
+  surprised: '/Surprised.vrma',
+};
+
+const EMOTION_DEFS = {
+  // overlays persist until replaced or 'neutral' is sent
+  excited:  { mode: 'overlay' },
+  happy:    { mode: 'overlay' },
+  sad:      { mode: 'overlay' },
+  angry:    { mode: 'overlay' },
+  thinking: { mode: 'overlay' },
+  sleepy:   { mode: 'overlay' },
+  relaxed:  { mode: 'overlay' },
+  lookAround:{ mode: 'overlay' },
+  sway:     { mode: 'overlay' },
+  dance:    { mode: 'overlay' },
+  // bursts fire once and return; portion = how much of the clip plays,
+  // pingpong = play forward to `portion` then reverse back
+  greeting:  { mode: 'burst', portion: 0.8 },
+  goodbye:   { mode: 'burst', portion: 0.8 },
+  agree:     { mode: 'burst', portion: 0.6, pingpong: true },
+  hardAgree: { mode: 'burst', portion: 0.6, pingpong: true },
+  disagree:  { mode: 'burst', portion: 0.6, pingpong: true },
+  annoyed:   { mode: 'burst', portion: 0.6, pingpong: true },
+  doubtful:  { mode: 'burst', portion: 0.6, pingpong: true },
+  sarcastic: { mode: 'burst', portion: 0.6, pingpong: true },
+  relieved:  { mode: 'burst', portion: 0.8 },
+  cocky:     { mode: 'burst', portion: 0.7 },
+  ack:       { mode: 'burst', portion: 0.7 },
+  dismiss:   { mode: 'burst', portion: 0.7 },
+  lookAway:  { mode: 'burst', portion: 0.7 },
+  happyGesture: { mode: 'burst', portion: 0.7 },
+  angryGesture: { mode: 'burst', portion: 0.8 },
+  clap:      { mode: 'burst', portion: 0.9 },
+  peace:     { mode: 'burst', portion: 0.7 },
+  kiss:      { mode: 'burst', portion: 0.7 },
+  shy:       { mode: 'burst', portion: 0.6 },
+  recoil:    { mode: 'burst', portion: 0.6, pingpong: true },
+  point:     { mode: 'burst', portion: 0.6, pingpong: true },
+  surprised: { mode: 'burst', portion: 0.7 },
+};
+
+const EMOTION_FACE = {
+  excited:  'happy',
+  happy:    'happy',
+  sad:      'sad',
+  angry:    'angry',
+  thinking: 'relaxed',
+  sleepy:   'relaxed',
+  relaxed:  'relaxed',
+  greeting: 'happy',
+  agree:    'happy',
+  hardAgree:'happy',
+  happyGesture: 'happy',
+  clap:     'happy',
+  disagree: 'angry',
+  annoyed:  'angry',
+  angryGesture: 'angry',
+  sarcastic:'angry',
+  relieved: 'relaxed',
+  shy:      'happy',
+  kiss:     'happy',
+};
+
+const clipCache   = new Map(); // url -> base clip
+const scaledCache = new Map(); // url|bucket -> amplitude-scaled clip
+const overlays    = new Map(); // name -> { action, url, targetWeight, targetSpeed, amp }
+function revive(action) {
+  action.stopFading();   // cancel any stale fade-out still in flight
+  action.enabled = true; // undo the auto-disable from a completed fade-out
+  return action;
+}
+function ensureMixer() {
+  if (!currentMixer) {
+    currentMixer = new THREE.AnimationMixer(currentVrm.scene);
+    currentMixer.addEventListener('finished', (e) => {
+      if (e.action._isBurst) {
+        e.action.fadeOut(0.4); // burst done → melt back, no snap
+        setTimeout(() => currentMixer?.uncacheAction(e.action.getClip()), 300);
+      }
+    });
+  }
+  return currentMixer;
+}
+
+async function loadClip(url) {
+  if (clipCache.has(url)) return clipCache.get(url);
+  const gltf = await loader.loadAsync(url);
+  const clip = createVRMAnimationClip(gltf.userData.vrmAnimations[0], currentVrm);
+  makeClipCyclic(clip); // blend tail into head so looping never snaps
+  clipCache.set(url, clip);
+  return clip;
+}
+
+// Amplitude scaling: high excitement = physically higher jumps, not just faster.
+// 1.0 = original, 1.5 = exaggerated, 0.4 = subdued.
+function getScaledClip(url, amp) {
+  const bucket = Math.round(amp * 4) / 4; // quantize to 0.25 for caching
+  const key = url + '|' + bucket;
+  if (scaledCache.has(key)) return scaledCache.get(key);
+  const clip = clipCache.get(url).clone();
+  for (const track of clip.tracks) {
+    const v = track.values;
+    if (track.name.endsWith('.position')) {
+      const [x0, y0, z0] = [v[0], v[1], v[2]];
+      for (let i = 0; i < v.length; i += 3) {
+        v[i]     = x0 + (v[i]     - x0) * bucket;
+        v[i + 1] = y0 + (v[i + 1] - y0) * bucket;
+        v[i + 2] = z0 + (v[i + 2] - z0) * bucket;
+      }
+    } else if (track.name.endsWith('.quaternion')) {
+      const base = new THREE.Quaternion(v[0], v[1], v[2], v[3]);
+      const baseInv = base.clone().invert();
+      const ident = new THREE.Quaternion();
+      const q = new THREE.Quaternion();
+      for (let i = 0; i < v.length; i += 4) {
+        q.set(v[i], v[i + 1], v[i + 2], v[i + 3]);
+        const rel = baseInv.clone().multiply(q);              // rotation relative to first frame
+        const out = base.clone().multiply(ident.clone().slerp(rel, bucket));
+        v[i] = out.x; v[i + 1] = out.y; v[i + 2] = out.z; v[i + 3] = out.w;
+      }
+    }
+  }
+  scaledCache.set(key, clip);
+  return clip;
+}
+
+// Continuous emotion overlay. Call repeatedly with new intensity values —
+// Blend the last `blendTime` seconds toward the first frame → seamless LoopRepeat
+function makeClipCyclic(clip, blendTime = 0.3) {
+  const dur = clip.duration;
+  const q = new THREE.Quaternion(), q0 = new THREE.Quaternion();
+  for (const track of clip.tracks) {
+    const stride = track.getValueSize(); // 3 for position, 4 for quaternion
+    const v = track.values, t = track.times;
+    for (let i = 0; i < t.length; i++) {
+      const w = THREE.MathUtils.clamp((t[i] - (dur - blendTime)) / blendTime, 0, 1);
+      if (w <= 0) continue;
+      if (stride === 4) {
+        q.set(v[i*4], v[i*4+1], v[i*4+2], v[i*4+3]);
+        q0.set(v[0], v[1], v[2], v[3]);
+        q.slerp(q0, w);
+        v[i*4] = q.x; v[i*4+1] = q.y; v[i*4+2] = q.z; v[i*4+3] = q.w;
+      } else {
+        for (let c = 0; c < stride; c++) {
+          v[i*stride+c] = THREE.MathUtils.lerp(v[i*stride+c], v[c], w);
+        }
+      }
+    }
+  }
+  return clip;
+}
+// weight & speed lerp smoothly every frame in updateEmotionEngine().
+async function setOverlay(name, url, intensity) {
+  intensity = THREE.MathUtils.clamp(intensity, 0, 1);
+  ensureMixer();
+  await loadClip(url);
+  const amp = 0.4 + intensity * 1.1; // amplitude 0.4–1.5
+
+  let entry = overlays.get(name);
+  if (!entry) {
+    const action = currentMixer.clipAction(getScaledClip(url, amp));
+    revive(action);
+    action.setLoop(THREE.LoopPingPong, Infinity);
+    action.setEffectiveWeight(0);
+    action.play();
+    entry = { action, url, targetWeight: 0, targetSpeed: 1, amp };
+    overlays.set(name, entry);
+  } else if (Math.abs(amp - entry.amp) >= 0.25) {
+    // swap to a differently-scaled clip, keeping phase → seamless
+    const next = currentMixer.clipAction(getScaledClip(url, amp));
+    revive(next);
+    next.setLoop(THREE.LoopRepeat, Infinity);
+    next.setEffectiveWeight(entry.action.getEffectiveWeight());
+    next.time = entry.action.time;
+    next.play();
+    entry.action.crossFadeTo(next, 1.5, false);
+    entry.action = next;
+    entry.amp = amp;
+  }
+  entry.targetWeight = intensity;
+  entry.targetSpeed  = 0.7 + intensity * 1.3;
+}
+
+function clearOverlay(name) {
+  const entry = overlays.get(name);
+  if (entry) { entry.action.fadeOut(0.4); overlays.delete(name); }
+}
+
+// Play only the first `portion` of a clip and return.
+// pingpong: forward to `portion`, then reverse back ("lean in and come back").
+async function playBurst(url, { portion = 1, intensity = 0.5, pingpong = false } = {}) {
+  if (!currentVrm) return;
+  ensureMixer();
+  await loadClip(url);
+  const src = getScaledClip(url, 0.4 + intensity * 1.1);
+  const endFrame = Math.max(1, Math.floor(src.duration * 30 * portion));
+  const clip = THREE.AnimationUtils.subclip(src, src.name + '_burst', 0, endFrame, 30);
+  const action = currentMixer.clipAction(clip);
+  action.setLoop(pingpong ? THREE.LoopPingPong : THREE.LoopOnce, pingpong ? 2 : 1);
+  action.timeScale = 0.7 + intensity * 1.3;
+  action.clampWhenFinished = true; // hold the final frame so the fade-out has something to blend from
+  action._isBurst = true;
+  action.fadeIn(0.2).play();
+}
+
+// Call once per frame BEFORE mixer.update()
+function updateEmotionEngine(delta) {
+  if (!currentMixer) return;
+  const k = 1 - Math.exp(-delta * 3); // frame-rate independent smoothing
+  for (const entry of overlays.values()) {
+    const w = entry.action.getEffectiveWeight();
+    entry.action.setEffectiveWeight(THREE.MathUtils.lerp(w, entry.targetWeight, k));
+    entry.action.timeScale = THREE.MathUtils.lerp(entry.action.timeScale, entry.targetSpeed, k);
+  }
+}
+
+// Entry point for backend JSON.
+//   { excitement: 0.8 }                  → continuous jumping intensity + proportional smile
+//   { emotion: "agree", intensity: 0.7 } → one-shot gesture + brief facial flash
+function applyEmotionState(state) {
+  if (!currentVrm || !state) return;
+
+  if (state.excitement !== undefined) {
+    const v = THREE.MathUtils.clamp(state.excitement, 0, 1);
+    if (v > 0.05) setOverlay('excited', ANIM_PATHS.excited, v);
+    else clearOverlay('excited');
+    emotionFace.happy = v; // excitement smiles proportionally
+  }
+
+    if (state.emotion) {
+    const key = state.emotion;
+    const intensity = state.intensity ?? 0.5;
+
+    // 'neutral' (or near-zero intensity) = wind everything down
+    if (key === 'neutral' || intensity <= 0.05) {
+      for (const n of overlays.keys()) clearOverlay(n);
+      for (const k in emotionFace) emotionFace[k] = 0;
+      return;
+    }
+
+    const def = EMOTION_DEFS[key];
+    if (!def) return;
+
+    // face: clear previous channels so they don't stack, then drive the mapped one
+    for (const k in emotionFace) emotionFace[k] = 0;
+    const faceKey = EMOTION_FACE[key];
+    if (faceKey) emotionFace[faceKey] = intensity;
+if (key === 'surprised' || key === 'recoil') targetVisemes.oh = 0.7 * intensity;
+    if (def.mode === 'overlay') {
+      // only ONE mood overlay at a time — fade out the others
+      for (const n of overlays.keys()) if (n !== key) clearOverlay(n);
+      setOverlay(key, ANIM_PATHS[key], intensity);
+    } else if (def.mode === 'burst') {
+      playBurst(ANIM_PATHS[key], { portion: def.portion, pingpong: def.pingpong, intensity });
+      if (faceKey) setTimeout(() => { emotionFace[faceKey] = 0; }, 1500);
+    }
+    // mode 'face' → expression only, no body animation
+  }
+}
+window.applyEmotionState = applyEmotionState;
 //#endregion
 // ==========================================
 // --- AUDIO & LIPSYNC (HEADAUDIO) ---
@@ -182,58 +473,68 @@ let audioContext = undefined;
 let headAudioNode = undefined;
 let lipsyncMixer = undefined;
 let targetVisemes = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+
+// Frame accumulator: holds the peak value received THIS frame from the audio worklet
+const frameVisemes = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+
+// Smoothed values that actually get sent to the VRM (prevents snapping)
+const smoothVisemes = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+
 async function initAudio() {
   if (!audioContext) {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     lipsyncMixer = audioContext.createGain();
     lipsyncMixer.gain.value = 1.0;
   }
-  
+
   if (!headAudioNode) {
     try {
-        await audioContext.audioWorklet.addModule('/headworklet.min.mjs');
-        headAudioNode = new HeadAudio(audioContext, {});
-        await headAudioNode.loadModel('/model-en-mixed.bin'); 
-        
-        const targetNode = headAudioNode.node || headAudioNode;
-        lipsyncMixer.connect(targetNode);
-        console.log("✅ Neural Network Lipsync Hooked Up!");
-        
-        headAudioNode.onvalue = (rawVisemeName, value) => {
-          const name = rawVisemeName.replace('viseme_', '');
-          
-          // ANTI-TWITCH DEADZONE
-          // Ignore values under 0.15. This stops the eyelids from fluttering 
-          // every time the neural net picks up a tiny breath or background noise.
-          let boost = value;
-          if (boost < 0.15) {
-              boost = 0.0;
-          }
+      await audioContext.audioWorklet.addModule('/headworklet.min.mjs');
+      headAudioNode = new HeadAudio(audioContext, {});
+      await headAudioNode.loadModel('/model-en-mixed.bin');
 
-          // Explicitly map your model's 13 outputs to the VRM's 5 mouth shapes
-          const mapping = {
-              'PP': 'aa', 'FF': 'aa',
-              'E':  'ee',
-              'I':  'ih', 'CH': 'ih', 'SS': 'ih', 'TH': 'ih', 'DD': 'ih', 'nn': 'ih',
-              'O':  'oh', 'kk': 'oh', 'RR': 'oh',
-              'U':  'ou'
-          };
+      const targetNode = headAudioNode.node || headAudioNode;
+      lipsyncMixer.connect(targetNode);
+      console.log("✅ Neural Network Lipsync Hooked Up!");
 
-          const targetKey = mapping[name];
-          
-          if (targetKey) {
-              // We use Math.max so if the model rapidly outputs 'I' and 'SS' at the same time,
-              // it takes the strongest signal instead of compounding them into a twitch.
-              targetVisemes[targetKey] = Math.max(targetVisemes[targetKey] || 0, boost);
-          }
-        };
+      headAudioNode.onvalue = (rawVisemeName, value) => {
+            const name = rawVisemeName.replace('viseme_', '');
+
+            // Slightly lower deadzone so whispers still register
+            if (value < 0.08) return;
+
+            // CORRECTED mapping for 5-shape VRM
+            const mapping = {
+                'PP': 'ou',   // lips pressed together → small rounded shape (NOT wide open!)
+                'FF': 'ih',   // teeth on lip
+                'TH': 'ih',   // tongue between teeth
+                'DD': 'ih',   // tongue on ridge
+                'kk': 'aa',   // back of mouth → jaw drops
+                'CH': 'ih',   // sh/ch
+                'SS': 'ih',   // teeth together
+                'nn': 'ih',   // tongue on roof
+                'RR': 'oh',   // rhotic
+                'aa': 'aa',   // <<< WAS MISSING. "ah" as in "father", "hot"
+                'E':  'ee',   // "eh" as in "men"
+                'I':  'ih',   // "ih" as in "tip"
+                'O':  'oh',   // "oh" as in "toe"
+                'U':  'ou'    // "oo" as in "boot"
+            };
+
+            const targetKey = mapping[name];
+            if (targetKey) {
+                // Accumulate the strongest signal since the last frame
+                targetVisemes[targetKey] = Math.max(targetVisemes[targetKey] || 0, value);
+            }
+            };
+
     } catch (err) {
-        console.error("FATAL: OVR Lipsync Initialization failed!", err);
+      console.error("FATAL: OVR Lipsync Initialization failed!", err);
     }
   }
-  
+
   if (audioContext.state === 'suspended') {
-      await audioContext.resume();
+    await audioContext.resume();
   }
 }
 
@@ -284,66 +585,83 @@ async function streamAndPlayAudio(sessionId) {
     };
 
    
+    let pendingEmotion = null; // emotion for the next audio chunk, fired when it starts playing
 
     ws.onmessage = (event) => {
-        // If interrupted mid-stream, terminate the socket and bail out
-        if (interruptedSessions[sessionId].interrupted) {
+    // If interrupted mid-stream, terminate the socket and bail out
+    if (interruptedSessions[sessionId].interrupted) {
+        pendingEmotion = null;
+        ws.close();
+        return;
+    }
+
+    // 1. Handle string messages (Metadata & Control Signals)
+    if (typeof event.data === "string") {
+        if (event.data === "EOS") {
+            console.log(`[WS DEBUG] 🏁 End of stream received for session ${sessionId}`);
             ws.close();
             return;
         }
 
-        // 1. Handle string messages (Metadata & Control Signals)
-        if (typeof event.data === "string") {
-            if (event.data === "EOS") {
-                console.log(`[WS DEBUG] 🏁 End of stream received for session ${sessionId}`);
-                ws.close();
-                return;
+        // Emotion state JSON from the backend → stash it, don't apply yet.
+        // It belongs to the audio chunk that arrives right after it.
+        try {
+            const msg = JSON.parse(event.data);
+            if (msg && msg.type === "emotion") {
+                pendingEmotion = { emotion: msg.emotion, intensity: msg.intensity };
             }
-            
-            return;
+        } catch (e) { /* not JSON — ignore */ }
+
+        return;
+    }
+
+    // 2. Handle Binary Audio
+    if (event.data instanceof ArrayBuffer) {
+        const int16Array = new Int16Array(event.data);
+        const float32Array = new Float32Array(int16Array.length);
+
+        for (let i = 0; i < int16Array.length; i++) {
+            float32Array[i] = int16Array[i] / 32768.0;
         }
 
-        // 2. Handle Binary Audio
-        if (event.data instanceof ArrayBuffer) {
-            const int16Array = new Int16Array(event.data);
-            const float32Array = new Float32Array(int16Array.length);
-            
-            for (let i = 0; i < int16Array.length; i++) {
-                float32Array[i] = int16Array[i] / 32768.0;
-            }
+        const audioBuffer = audioContext.createBuffer(1, float32Array.length, SAMPLE_RATE);
+        audioBuffer.getChannelData(0).set(float32Array);
 
-            const audioBuffer = audioContext.createBuffer(1, float32Array.length, SAMPLE_RATE);
-            audioBuffer.getChannelData(0).set(float32Array);
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffer;
 
-            const source = audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            
-            source.connect(audioContext.destination);
-            if (typeof lipsyncMixer !== 'undefined' && lipsyncMixer) {
-                source.connect(lipsyncMixer);
-            }
-
-            if (nextPlayTime < audioContext.currentTime) {
-                nextPlayTime = audioContext.currentTime + 0.05;
-            }
-
-
-            source.start(nextPlayTime);
-            nextPlayTime += audioBuffer.duration;
-            
-            // Push it into our queue array
-            scheduledAudioNodes.push(source);
-
-
-            
-            // --- The onEnded Event ---
-            source.onended = () => {
-                scheduledAudioNodes.shift();
-                interruptedSessions[sessionId].chunkId += 1;
-            };
+        source.connect(audioContext.destination);
+        if (typeof lipsyncMixer !== 'undefined' && lipsyncMixer) {
+            source.connect(lipsyncMixer);
         }
 
-    };
+        if (nextPlayTime < audioContext.currentTime) {
+            nextPlayTime = audioContext.currentTime + 0.05;
+        }
+
+        // Fire the pending emotion exactly when this chunk starts playing,
+        // not when it arrived (audio may be queued seconds ahead)
+        if (pendingEmotion) {
+            const em = pendingEmotion;
+            pendingEmotion = null;
+            const delayMs = Math.max(0, (nextPlayTime - audioContext.currentTime) * 1000);
+            setTimeout(() => applyEmotionState(em), delayMs);
+        }
+
+        console.log("TTFS" + new Date(Date.now()).toString());
+        source.start(nextPlayTime);
+        nextPlayTime += audioBuffer.duration;
+
+        // Push it into our queue array
+        scheduledAudioNodes.push(source);
+
+        // --- The onEnded Event ---
+        source.onended = () => {
+            scheduledAudioNodes.shift();
+            interruptedSessions[sessionId].chunkId += 1;
+        };
+    }
+};
 
     ws.onerror = (error) => {
         console.error(`[WS DEBUG] ❌ WebSocket error for session ${sessionId}:`, error);
@@ -363,7 +681,7 @@ async function streamAndPlayAudio(sessionId) {
 let isAudioPipelineInitialized = false;
 let ws = null; 
 let interruptTimer = null;
-const INTERRUPT_DELAY_MS = 1000;
+const INTERRUPT_DELAY_MS = 2000;
 async function initializeAudioPipeline() {
     // 1. Guard check: Only run this once
     if (isAudioPipelineInitialized) {
@@ -440,11 +758,11 @@ async function initializeAudioPipeline() {
             model: "v5",
             
             // Drastically higher thresholds. 
-            positiveSpeechThreshold: 0.65, 
-            negativeSpeechThreshold: 0.55, 
+            positiveSpeechThreshold: 0.70, 
+            negativeSpeechThreshold: 0.70, 
             minSpeechFrames: 4, 
             preSpeechPadFrames: 75, 
-            redemptionFrames: 25, 
+            redemptionFrames: 5, 
 
             onSpeechStart: () => {
                 console.log("Speech start detected.");
@@ -469,27 +787,6 @@ async function initializeAudioPipeline() {
                 }
             },
 
-            onFrameProcessed: (probabilities) => {
-                if (isSpeechRunning) {
-                    if (probabilities.isSpeech > 0.65) {
-                        readyForNextChunk = 0;
-                    }
-                    else if (probabilities.isSpeech < 0.65 && probabilities.notSpeech > 0.65) {
-                        if (readyForNextChunk >= 0) {
-                            readyForNextChunk++;
-                            if (readyForNextChunk === 15) {
-                                console.log("Mid-speech dip (15 frames) detected. Sending 'speech_chunk'.");
-                                
-                                if (ws && ws.readyState === WebSocket.OPEN) {
-                                    ws.send(JSON.stringify({action: "speech_chunk"}));
-                                }
-                                
-                                readyForNextChunk = -1; 
-                            }
-                        }
-                    }
-                }
-            },
 
             onVADMisfire: () => {
                 console.log("VAD misfire detected. Telling backend to dump the buffer.");
@@ -502,17 +799,18 @@ async function initializeAudioPipeline() {
                     console.log("Interrupt cancelled because it was a misfire.");
                 }
 
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({action: "misfire"}));
-                }
+                
             },
 
             onSpeechEnd: () => {
-                console.log("Valid speech ended. Sending 'speech_end'.");
+
+                console.log("SPEECH END" + new Date(Date.now()).toString());
                 isSpeechRunning = false; 
                 
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({action: "speech_end"}));
+                    updateTokenDisplay();
+                    updateRemSleepPrice();
                 }
             },
             
@@ -536,8 +834,8 @@ const clock = new THREE.Clock();
 let currentVisemes = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
 let nextBlinkTime = 0;
 let isBlinking = false;
-let blinkStartTime = 0;
-const blinkDuration = 0.15;
+let blinkStartTime = 0;const blinkDuration = 0.15;
+const emotionFace = { happy: 0, surprised: 0, relaxed: 0, sad: 0, angry: 0 };
 const gazeProxy = new THREE.Object3D(); 
 scene.add(gazeProxy);
 const tempV3 = new THREE.Vector3(); 
@@ -554,7 +852,8 @@ function animate() {
   const deltaTime = clock.getDelta();
   const time = clock.elapsedTime; 
 
-  if (currentMixer) currentMixer.update(deltaTime); 
+updateEmotionEngine(deltaTime);
+  if (currentMixer) currentMixer.update(Math.min(deltaTime, 0.1)); 
   if (headAudioNode) headAudioNode.update(deltaTime * 1000); 
 
   if (currentVrm) {
@@ -616,6 +915,13 @@ function animate() {
     currentVrm.lookAt.target = gazeProxy;
     
     const expressionManager = currentVrm.expressionManager;
+    
+    const shyDampen = (gazeState === 'shy') ? 0.25 : 1.0;
+    
+    for (const key in emotionFace) {
+        const current = expressionManager.getValue(key) || 0;
+        expressionManager.setValue(key, THREE.MathUtils.lerp(current, emotionFace[key] * shyDampen, deltaTime * 2.0));
+    }
     const currentRelaxed = expressionManager.getValue('relaxed') || 0;
     const currentHappy = expressionManager.getValue('happy') || 0;
     const currentSurprised = expressionManager.getValue('surprised') || 0;
@@ -777,16 +1083,10 @@ const passwordInput = document.getElementById('passwordInput');
 
 function getAuthHeaders(includeJsonContentType = true) {
     const headers = { 'Authorization': `Bearer ${authToken}` };
-    if (includeJsonContentType) {
-        headers['Content-Type'] = 'application/json';
-    }
+    if (includeJsonContentType) headers['Content-Type'] = 'application/json';
     return headers;
 }
 
-// For file uploads — never send Content-Type, browser sets the boundary
-function getMultipartAuthHeaders() {
-    return { 'Authorization': `Bearer ${authToken}` };
-}
 
 //HELPER
 async function updateTokenDisplay() {
@@ -824,7 +1124,7 @@ async function updateTokenDisplay() {
         } else {
             display.style.color = 'white'; 
         }
-        display.value += ` Long term memory token count ${countLong.toLocaleString()}`
+        display.value += ` Long term memory token count ${countLong.toLocaleString()} you have: $ ${balanceData.balance}`
 
     } catch (err) {
         console.error("Failed to fetch tokens:", err);
@@ -868,7 +1168,6 @@ function lockApplication() {
 
 
 if (authToken && tokenExpiresAt > Date.now()) {
-    unlockApplication();
     updateTokenDisplay();
 } else if (authToken && tokenExpiresAt < Date.now()) {
     lockApplication(); 
@@ -941,6 +1240,7 @@ toggleAuthModeBtn.addEventListener('click', () => {
 async function autoLoginLocal() {
     const email = "LOCAL@LOCAL.com";
     const password = "TESTtest123*-";
+    
 
     try {
         // 1. Register — 400 on production or if user exists, ignored
@@ -1032,6 +1332,7 @@ async function executeTokenRefresh() {
 const tokenModal = document.getElementById('tokenModal');
 //const addTokensBtn = document.getElementById('addTokensBtn');
 const closeModal = document.getElementById('closeModal');
+const confirmPurchaseBtn = document.getElementById('confirmPurchaseBtn');
 
 addTokensBtn.addEventListener('click', () => {
     tokenModal.classList.remove('hidden');
@@ -1041,12 +1342,68 @@ closeModal.addEventListener('click', () => {
     tokenModal.classList.add('hidden');
 });
 
+confirmPurchaseBtn.addEventListener('click', async () => {
+    const txId = document.getElementById('txHashInput').value;
+    const txKey = document.getElementById('txKeyInput').value;
 
+    try {
+        const response = await fetch(`${API_BASE}/api/checkXMR?txId=${encodeURIComponent(txId)}&txKey=${encodeURIComponent(txKey)}`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            alert(`Balance added! Credited: $${data.data.toFixed(2)}`);
+            tokenModal.classList.add('hidden');
+            updateTokenDisplay();
+        } else {
+
+            const data = await response.json();
+            alert(data.data);
+        }
+    } catch (err) {
+        alert("you are doing something very wrong, check parameters");
+    }
+});
+// Close modal if user clicks outside of the content box
+window.addEventListener('click', (event) => {
+    if (event.target === tokenModal) {
+        tokenModal.classList.add('hidden');
+    }
+});
 
 
 
 // Add your actual addresses here
+const cryptoAddresses = {
+    xmr: "49DhJ2kg5fPQZHstBnYgqM8PmjjGgMn7cBLY6A381cfpXJvRxApmbkoBtPRRsjefmUHniprTPb6Xv6srs3waSnjKNENsmWf",
+    eth: "not supported rn",
+    btc: "not supported rn"
+};
 
+const cryptoSelect = document.getElementById('cryptoSelect');
+const walletAddressDisplay = document.getElementById('walletAddressDisplay');
+const copyAddressBtn = document.getElementById('copyAddressBtn');
+
+// Update address display when select changes
+cryptoSelect.addEventListener('change', () => {
+    walletAddressDisplay.value = cryptoAddresses[cryptoSelect.value];
+});
+
+// Initialize first value
+walletAddressDisplay.value = cryptoAddresses.xmr;
+
+// Copy button logic
+copyAddressBtn.addEventListener('click', () => {
+    walletAddressDisplay.select();
+    document.execCommand('copy');
+    
+    // Quick visual feedback
+    const originalText = copyAddressBtn.innerText;
+    copyAddressBtn.innerText = "Copied!";
+    setTimeout(() => { copyAddressBtn.innerText = originalText; }, 2000);
+});
 
 
 const vrBtn = document.getElementById('vr-btn');
@@ -1115,86 +1472,13 @@ async function updateLanguage() {
         });
         
     }
+    
+async function updateRemSleepPrice() {
+    const res = await fetch(`${API_BASE}/api/get-rem-cost`, { headers: getAuthHeaders() });
+    const { short_term_memory_count: count, rem_sleep_price: price } = await res.json();
+    const btn = document.getElementById("remSleepBtn");
+    btn.textContent = count ? `REM $${price.toFixed(2)}` : "REM";
+}    
 //#endregion
 
-// Export memories
-document.getElementById('exportMemoriesBtn').addEventListener('click', async () => {
-    try {
-        const response = await fetch(`${API_BASE}/api/export-memories`, {
-            method: 'GET',
-            headers: getAuthHeaders()
-        });
-
-        if (!response.ok) {
-            const err = await response.text();
-            throw new Error(err || 'Export failed');
-        }
-
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `memories_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'')}.json`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-
-    } catch (e) {
-        alert('Export failed: ' + e.message);
-    }
-});
-// Open file dialog when Import is clicked
-document.getElementById('importMemoriesBtn').addEventListener('click', () => {
-    document.getElementById('importFileInput').click();
-});
-
-// Handle the selected file
-document.getElementById('importFileInput').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const statusEl = document.getElementById('importStatus');
-    statusEl.textContent = 'Importing...';
-    statusEl.style.color = '#aaa';
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-        const response = await fetch(`${API_BASE}/api/import-memories`, {
-            method: 'POST',
-            headers: getMultipartAuthHeaders(),
-            body: formData
-        });
-
-        if (!response.ok) throw new Error(await response.text());
-
-        const result = await response.json();
-
-        // Auto-download the backup that was returned
-        if (result.backedUpMemories) {
-            const backupBlob = new Blob(
-                [JSON.stringify(result.backedUpMemories, null, 2)],
-                { type: 'application/json' }
-            );
-            const url = URL.createObjectURL(backupBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `memories_backup_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'')}.json`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
-        }
-
-        statusEl.textContent = 'Import successful! Old memories backed up.';
-        statusEl.style.color = '#4caf50';
-        e.target.value = '';
-
-    } catch (err) {
-        statusEl.textContent = 'Import failed: ' + err.message;
-        statusEl.style.color = '#f44336';
-    }
-});
 autoLoginLocal();
